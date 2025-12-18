@@ -13,16 +13,19 @@ def main():
     model = YOLO("yolo11n.pt")  # load a pretrained model (nano version)
 
     # Train the model
-    # imgsz=640 is standard. Rectangular training can be useful if aspect ratios vary wildly, but 640 is safe.
+    # Train the model
+    # imgsz=1024 matches our tile size, ensuring no downscaling occurs
     results = model.train(
         data=str(DATA_YAML), 
-        epochs=10, 
+        epochs=4, 
         project=str(SCRIPT_DIR / "runs"), 
         name="bird_count_exp",
-        exist_ok=True, # overwrite existing experiment
-        device='mps',
-        batch=1,
-        workers=2,
+        exist_ok=True, 
+        device='mps', # Switch to CPU to debug MPS error
+        batch=-1,      
+        imgsz=1024,   
+        workers=8,    # Disable workers for stability
+        cache=True,
     )
     
     # Export or just leave it. The best model will be in runs/bird_count_exp/weights/best.pt

@@ -2,16 +2,16 @@ task: detect
 mode: train
 model: yolo11n.pt
 data: /Users/bjorn/Desktop/Projects/AI Competition/AI Keppni/GKI2026/CV_problem/Admin/datasets/data.yaml
-epochs: 10
+epochs: 4
 time: null
 patience: 100
-batch: 1
-imgsz: 640
+batch: -1
+imgsz: 1024
 save: true
 save_period: -1
-cache: false
+cache: true
 device: mps
-workers: 2
+workers: 8
 project: /Users/bjorn/Desktop/Projects/AI Competition/AI Keppni/GKI2026/CV_problem/Admin/runs
 name: bird_count_exp
 exist_ok: true

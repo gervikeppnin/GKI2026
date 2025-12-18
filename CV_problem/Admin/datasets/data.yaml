@@ -1,7 +1,7 @@
 
-path: /Users/bjorn/Desktop/Projects/AI Competition/AI Keppni/GKI2026/CV_problem/Admin/datasets # dataset root dir
-train: images/train # train images (relative to 'path')
-val: images/val # val images (relative to 'path')
+path: /Users/bjorn/Desktop/Projects/AI Competition/AI Keppni/GKI2026/CV_problem/Admin/datasets
+train: images/train
+val: images/val
 
 names:
   0: bird

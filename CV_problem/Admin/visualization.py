@@ -14,7 +14,7 @@ def load_data(folder_path):
     pnts = {f.stem: f for f in all_files if f.suffix.lower() == '.pnt'}
     return jpgs, pnts
 
-def visualize_sample(image_path, pnt_path):
+def visualize_sample(image_path, pnt_path, output_dir):
     """Visualizes the image and overlays the points from the pnt file."""
     print(f"Visualizing: {image_path.name}")
     
@@ -34,11 +34,15 @@ def visualize_sample(image_path, pnt_path):
         return
 
     # Setup Plot
-    # Setup Plot
     height, width = image.shape[:2]
-    dpi = 100
+    dpi = 200
     figsize = (width / dpi, height / dpi)
-    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+    fig = plt.figure(figsize=figsize, dpi=dpi)
+    
+    # Manually add axes covering the entire figure [left, bottom, width, height]
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_axis_off()
+    
     ax.imshow(image)
     
     # Extract and Plot Points
@@ -74,9 +78,13 @@ def visualize_sample(image_path, pnt_path):
         ax.scatter(xs, ys, c=color, s=20, label=class_name)
         print(f"  - Plotted {len(points)} points for class '{class_name}'")
 
-    ax.legend()
-    ax.set_title(image_path.name)
-    plt.show() # In non-interactive environments this might just block or do nothing visible, but code is correct.
+    ax.legend(loc='upper right')
+    
+    output_path = output_dir / f"annotated_{image_path.name}"
+    # Use bbox_inches=None to respect the exact figsize/dpi set above (add_axes coverage)
+    fig.savefig(output_path, dpi=dpi) 
+    print(f"  - Saved to: {output_path}")
+    plt.close(fig)
 
 def main(target=None):
     data_folder = get_data_folder()
@@ -86,19 +94,21 @@ def main(target=None):
         print("Error: Data folder not found!")
         return
 
+    # Create output directory
+    output_dir = pathlib.Path(__file__).parent / "annotated_results"
+    output_dir.mkdir(exist_ok=True)
+    print(f"Output folder: {output_dir}")
+
     jpgs, pnts = load_data(data_folder)
     
     # Find common stems
     common_stems = set(jpgs.keys()) & set(pnts.keys())
 
-    # Visualize one example (or specifically the '501' one requested previously)
-    if target:
-        for stem in common_stems:
-            if target in stem:
-                visualize_sample(jpgs[stem], pnts[stem])
-    else:
-        for stem in common_stems:
-            visualize_sample(jpgs[stem], pnts[stem])
+    # Visualize
+    for stem in common_stems:
+        if target and target not in stem:
+            continue
+        visualize_sample(jpgs[stem], pnts[stem], output_dir)
 
 if __name__ == "__main__":
     main(target=None)
