@@ -39,7 +39,7 @@ def load_csv_data(data_dir: str) -> Dict[str, pd.DataFrame]:
 
 
 def build_network_from_csv(data_dir: str = "Shared Materials", 
-                           reservoir_head_offset: float = 20.0) -> wntr.network.WaterNetworkModel:
+                           reservoir_head_offset: float = 100.0) -> wntr.network.WaterNetworkModel:
     """Build a WNTR WaterNetworkModel from CSV files.
     
     Args:
@@ -189,16 +189,33 @@ def build_network_from_csv(data_dir: str = "Shared Materials",
         except Exception as e:
             print(f"Warning: Could not add pump {name}: {e}")
     
-    # Add valves (using TCV for initial testing)
+    # Add valves
     for _, row in data['valves'].iterrows():
         name = str(row['name'])
         start_node = str(row['start'])
         end_node = str(row['end'])
         diameter = float(row['diameter']) if pd.notna(row['diameter']) else 100.0
         minor_loss = float(row['minorLoss']) if pd.notna(row['minorLoss']) else 0.0
+        valve_type = str(row['type']).upper() if pd.notna(row['type']) else 'TCV'
+        setting = float(row['setting']) if pd.notna(row['setting']) else 0.0
         
         # Convert diameter to m
         diameter_m = diameter / 1000.0
+        
+        # Handle valve settings based on type
+        # Assuming CSV setting is in BAR for pressure valves
+        final_setting = setting
+        
+        if valve_type in ['PRV', 'PSV', 'PBV']:
+            # WNTRSimulator often struggles with active valves in this specific network
+            # (conflicting PRVs or unsupported PBVs). 
+            # Fallback to TCV (Fully Open) to ensure convergence.
+            print(f"Warning: {valve_type} valve {name} converted to OPEN TCV for stability.")
+            valve_type = 'TCV'
+            final_setting = 0.0
+        elif valve_type == 'FCV':
+            # Convert L/s to m3/s if setting is flow
+            final_setting = setting / 1000.0
         
         try:
             wn.add_valve(
@@ -206,9 +223,9 @@ def build_network_from_csv(data_dir: str = "Shared Materials",
                 start_node_name=start_node,
                 end_node_name=end_node,
                 diameter=diameter_m,
-                valve_type='TCV',  # Throttle control valve, fully open
+                valve_type=valve_type,
                 minor_loss=minor_loss,
-                initial_setting=0  # Fully open
+                initial_setting=final_setting
             )
         except Exception as e:
             print(f"Warning: Could not add valve {name}: {e}")

@@ -78,13 +78,13 @@ def load_data_and_model(strategy="decade"):
 
 
 def run_sim_with_roughness(roughness_values: dict, pipe_groups: dict, sensor_names: list,
-                           reservoir_head_offset: float = 20.0, strategy: str = "decade"):
+                           reservoir_head_offset: float = 100.0, strategy: str = "decade"):
     """Run simulation with specified roughness values and reservoir head."""
     # Rebuild network with specified reservoir head
-    wn = build_network_from_csv("Shared Materials", reservoir_head_offset=reservoir_head_offset)
+    wn = build_network_from_csv("data", reservoir_head_offset=reservoir_head_offset)
     
     # Rebuild pipe groups for this instance
-    pipes_df = pd.read_csv("Shared Materials/pipes_csv.csv")
+    pipes_df = pd.read_csv("data/pipes_csv.csv")
     pipe_groups = get_pipe_groups(wn, pipes_df, strategy=strategy)
     
     # Update roughness values
@@ -343,7 +343,7 @@ def main():
     
     # ========== SIDEBAR ==========
     # Fixed reservoir head (competitors only adjust roughness)
-    reservoir_head = 20.0  # Fixed: 20m offset above 21.6m elevation = 41.6m total head
+    reservoir_head = 100.0  # Fixed: 100m offset above 21.6m elevation = 121.6m total head
     
     st.sidebar.markdown("---")
     st.sidebar.header("🔧 Roughness Controls")
@@ -402,7 +402,7 @@ def main():
         key="training_method"
     )
     
-    n_steps = st.sidebar.slider("Training Steps", min_value=5, max_value=50, value=15, key="n_steps")
+    n_steps = st.sidebar.slider("Optimization Iterations", min_value=5, max_value=50, value=15, key="n_steps", help="Number of times the algorithm runs the simulation to refine parameters.")
     
     run_training_btn = st.sidebar.button("🎯 Run Training", use_container_width=True)
     
