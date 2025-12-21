@@ -20,9 +20,5 @@
 Thumbs.db
 ehthumbs.db
 
-# Admin/
-# !CV_problem/Admin/evaluate_count.py
-# !CV_problem/Admin/visualize_results.py
-# !CV_problem/Admin/prepare_data.py
-# !CV_problem/Admin/train_yolo.py
-# !CV_problem/Admin/datasets/data.yaml
+Admin/
+venv/

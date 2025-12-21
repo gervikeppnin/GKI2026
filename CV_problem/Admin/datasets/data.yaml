@@ -1,7 +1,0 @@
-
-path: /Users/bjorn/Desktop/Projects/AI Competition/AI Keppni/GKI2026/CV_problem/Admin/datasets
-train: images/train
-val: images/val
-
-names:
-  0: bird
