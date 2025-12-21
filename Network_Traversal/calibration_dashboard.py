@@ -54,7 +54,7 @@ st.markdown("""
 @st.cache_resource
 def load_data_and_model(strategy="decade"):
     """Load CSV data and build the WNTR model (cached)."""
-    data_dir = "Shared Materials"
+    data_dir = "data"
     
     # Load raw data
     data = load_csv_data(data_dir)
