@@ -92,11 +92,11 @@ Submissions will be evaluated on:
 
 | File | Description |
 |------|-------------|
-| `roughness_calibration_env.py` | Gymnasium RL environment (WNTR-based) |
-| `wntr_model_builder.py` | WNTR network builder and simulation utilities |
+| `roughness_calibration_env.py` | Gymnasium RL environment |
+| `epanet_engine.py` | EPANET-based network simulation engine |
 | `calibration_dashboard.py` | Interactive Streamlit dashboard for visualization |
 | `train_baseline.py` | Baseline training script |
-| `Shared Materials/*.csv` | Network data and sensor measurements |
+| `data/*.csv` | Network data and sensor measurements |
 
 ## Getting Started
 
@@ -166,14 +166,14 @@ Can you beat the baselines with a smarter approach?
 
 ## Technical Notes
 
-### WNTR Simulation
-This competition uses [WNTR](https://wntr.readthedocs.io/) (Water Network Tool for Resilience) for hydraulic simulation. WNTR provides:
-- Pure Python implementation (no external C binaries needed)
-- Cross-platform compatibility
-- Integration with the Python scientific ecosystem
+### EPANET Simulation
+This competition uses [EPANET 2.2](https://www.epa.gov/water-research/epanet) for hydraulic simulation via WNTR Python bindings. EPANET provides:
+- Industry-standard hydraulic solver
+- Full valve support (PRV, PSV, PBV, FCV, TCV)
+- Accurate pressure and flow calculations
 
 ### Hazen-Williams vs Darcy-Weisbach
-The model uses Hazen-Williams headloss formula for compatibility with WNTR's built-in simulator. The original data provides Darcy-Weisbach roughness values which have been converted to H-W C-factors.
+The model uses Hazen-Williams headloss formula. C-factors are calculated based on pipe material and age using standard engineering tables.
 
 ## Prize Categories
 

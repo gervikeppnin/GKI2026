@@ -1,0 +1,7 @@
+# Temporary simulation files
+temp/
+*.inp
+*.rpt
+*.bin
+__pycache__/
+*.pyc

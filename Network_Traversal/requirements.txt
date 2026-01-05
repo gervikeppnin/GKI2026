@@ -19,3 +19,7 @@ wntr==1.3.2
 zipp==3.23.0
 streamlit
 plotly
+gymnasium
+scikit-learn
+joblib
+tqdm
