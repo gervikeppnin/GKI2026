@@ -50,10 +50,11 @@ class SimulationEngine:
     Manages the WNTR (Water Network Tool used for Resilience) model creation, simulation, and evaluation.
     Previously NetworkManager.
     """
-    def __init__(self, data_dir: Optional[Path] = None, date: Optional[str] = None):
+    def __init__(self, data_dir: Optional[Path] = None, date: Optional[str] = None, include_rejected: bool = False):
         self.data_dir = data_dir or DATA_DIR
         self.date = date
-        self.data = load_csv_data(self.data_dir, self.date)
+        self.include_rejected = include_rejected
+        self.data = load_csv_data(self.data_dir, self.date, include_rejected=self.include_rejected)
         self.wn: Optional[wntr.network.WaterNetworkModel] = None
         
         # Cache sensor data for evaluation
@@ -64,7 +65,7 @@ class SimulationEngine:
         """Switch simulation context to a specific date."""
         if self.date != date:
             self.date = date
-            self.data = load_csv_data(self.data_dir, self.date)
+            self.data = load_csv_data(self.data_dir, self.date, include_rejected=self.include_rejected)
             # Re-cache sensor names and pressures for the new date
             self.sensor_names = self._get_sensor_names_from_data()
             self.measured_pressures = self._load_measured_pressures()

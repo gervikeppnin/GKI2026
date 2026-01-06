@@ -7,8 +7,7 @@ from typing import Dict, Optional
 from functools import lru_cache
 from .config import DATA_DIR
 
-@lru_cache(maxsize=1)
-def load_csv_data(data_dir: Optional[Path] = None, date: Optional[str] = None) -> Dict[str, pd.DataFrame]:
+def load_csv_data(data_dir: Optional[Path] = None, date: Optional[str] = None, include_rejected: bool = False) -> Dict[str, pd.DataFrame]:
     """
     Load all CSV files into dataframes.
     If 'date' is provided (format 'DDMMYY'), attempts to load specific daily files 
@@ -31,23 +30,54 @@ def load_csv_data(data_dir: Optional[Path] = None, date: Optional[str] = None) -
     
     # Override for specific date if provided
     if date:
-        # Check for specific files
-        flow_file = data_dir / "input_flow_20days" / f"inputflow_{date}.csv"
-        sensor_file = data_dir / "iot_measurements_20days" / f"sensors_{date}.csv"
+        # Check for specific files in consolidated headers, legacy, OR rejected
+        # Define search roots: Main (Consolidated) and Rejected
+        search_roots = [data_dir]
         
-        if flow_file.exists():
-            files['boundary_flow'] = flow_file
-        else:
-            print(f"Warning: Date {date} requested but {flow_file.name} not found. Using default.")
-            
-        if sensor_file.exists():
-            files['sensors'] = sensor_file
-        else:
-             print(f"Warning: Date {date} requested but {sensor_file.name} not found. Using default.")
+        if include_rejected:
+            if data_dir.name == "consolidated":
+                 search_roots.append(data_dir / "rejected")
+            elif data_dir.name == "data": # Fallback
+                 search_roots.append(data_dir / "rejected")
+
+        flow_dirs = ["boundary_flow", "input_flow_20days"]
+        sensor_dirs = ["pressure_sensors", "iot_measurements_20days"]
+        
+        files['boundary_flow'] = None
+        files['sensors'] = None
+        
+        # Search for Flow File
+        for root in search_roots:
+            if files['boundary_flow'] is not None: break
+            for d in flow_dirs:
+                p = root / d / f"inputflow_{date}.csv"
+                if p.exists():
+                    files['boundary_flow'] = p
+                    break
+        
+        # Search for Sensor File
+        for root in search_roots:
+            if files['sensors'] is not None: break
+            for d in sensor_dirs:
+                p = root / d / f"sensors_{date}.csv"
+                if p.exists():
+                    files['sensors'] = p
+                    break
+        
+        if files['boundary_flow'] is None:
+            # Only warn if not found in ANY location
+             print(f"Warning: Date {date} requested but inputflow file not found. Using default.")
+             files['boundary_flow'] = "boundary_flow.csv"
+
+        if files['sensors'] is None:
+             print(f"Warning: Date {date} requested but sensors file not found. Using default.")
+             files['sensors'] = "sensor_measurements.csv"
 
     data = {}
     for key, filename in files.items():
         # Handle both string filenames (relative) and Path objects (absolute from override)
+        if filename is None: continue 
+        
         if isinstance(filename, Path):
             file_path = filename
         else:
@@ -60,36 +90,50 @@ def load_csv_data(data_dir: Optional[Path] = None, date: Optional[str] = None) -
                 # Rename columns to standard [index/hour, flow] if needed, 
                 # though engine mostly relies on position.
                 pass 
-        except FileNotFoundError:
-             if not date: # Only warn if we aren't already expecting potential missing files for specific dates
-                 print(f"Warning: File {filename} not found in {data_dir}. Returning empty DataFrame.")
+        except Exception as e: # Catch all read errors (missing cols, empty, etc)
+             if not date: 
+                 print(f"Warning: File {filename} not found or invalid in {data_dir}. {e}")
              data[key] = pd.DataFrame()
 
     return data
 
-def get_available_dates(data_dir: Optional[Path] = None) -> list[str]:
+def get_available_dates(data_dir: Optional[Path] = None, include_rejected: bool = False) -> list[str]:
     """Scan data directories to find available dates (DDMMYY)."""
     if data_dir is None:
         data_dir = DATA_DIR
         
     dates = set()
     
-    # Scan input flow folder
-    flow_dir = data_dir / "input_flow_20days"
-    if flow_dir.exists():
-        for f in flow_dir.glob("inputflow_*.csv"):
-            # extract DDMMYY from inputflow_DDMMYY.csv
-            parts = f.stem.split('_')
-            if len(parts) > 1:
-                dates.add(parts[1])
-                
-    # Scan sensors folder
-    sensor_dir = data_dir / "iot_measurements_20days"
-    if sensor_dir.exists():
-        for f in sensor_dir.glob("sensors_*.csv"):
-            parts = f.stem.split('_')
-            if len(parts) > 1:
-                dates.add(parts[1])
+    search_roots = [data_dir]
+    
+    if include_rejected:
+        if data_dir.name == "consolidated":
+             search_roots.append(data_dir / "rejected")
+    
+    # Check for consolidated first, then legacy, then rejected
+    possible_flow_dirs = ["boundary_flow", "input_flow_20days"]
+    possible_sensor_dirs = ["pressure_sensors", "iot_measurements_20days"]
+    
+    for root in search_roots:
+        if not root.exists(): continue
+        
+        # Scan input flow folders
+        for d_name in possible_flow_dirs:
+            flow_dir = root / d_name
+            if flow_dir.exists():
+                for f in flow_dir.glob("inputflow_*.csv"):
+                    parts = f.stem.split('_')
+                    if len(parts) > 1:
+                        dates.add(parts[1])
+                    
+        # Scan sensors folder
+        for d_name in possible_sensor_dirs:
+            sensor_dir = root / d_name
+            if sensor_dir.exists():
+                for f in sensor_dir.glob("sensors_*.csv"):
+                    parts = f.stem.split('_')
+                    if len(parts) > 1:
+                        dates.add(parts[1])
                 
     return sorted(list(dates))
 

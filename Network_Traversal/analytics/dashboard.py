@@ -19,9 +19,14 @@ import os
 project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from Network_Traversal.core.engine import SimulationEngine, get_network_geometry
+import Network_Traversal.core.engine as engine_module
 from Network_Traversal.core.model_storage import list_models, load_model, CalibrationModel
 import Network_Traversal.analytics.vis_utils as vis_utils
+import Network_Traversal.core.data_utils as data_utils
+import importlib
+importlib.reload(data_utils)
+importlib.reload(engine_module)
+from Network_Traversal.core.engine import SimulationEngine, get_network_geometry
 from Network_Traversal.core.data_utils import get_available_dates
 
 logger = logging.getLogger(__name__)
@@ -38,11 +43,22 @@ def main():
     # ==========================================================================
     st.sidebar.header("⚙️ Configuration")
     
+    # --- Data Settings ---
+    include_rejected = st.sidebar.checkbox(
+        "Include Rejected Data", 
+        value=False,
+        help="Include data with missing sensors or incomplete hours (from 'rejected' folder)."
+    )
+    
     # --- Date Selection ---
-    available_dates = get_available_dates()
+    available_dates = get_available_dates(include_rejected=include_rejected)
     
     if 'simulation_date' not in st.session_state:
         st.session_state.simulation_date = available_dates[0] if available_dates else None
+
+    # Reset if current date not in new list (unless list is empty)
+    if st.session_state.simulation_date not in available_dates and available_dates:
+         st.session_state.simulation_date = available_dates[0]
 
     selected_date = st.sidebar.selectbox(
         "📅 Simulation Date",
@@ -59,7 +75,7 @@ def main():
 
     # --- Load Engine ---
     with st.spinner(f"Loading Simulation Engine ({st.session_state.simulation_date})..."):
-        engine = SimulationEngine(date=st.session_state.simulation_date)
+        engine = SimulationEngine(date=st.session_state.simulation_date, include_rejected=include_rejected)
         engine.build_network()
         sensor_names = engine.sensor_names
         measured_df = engine.data.get('sensors', pd.DataFrame())
@@ -288,7 +304,7 @@ def main():
                     status_text.text(f"Simulating date: {d} ({idx+1}/{len(available_dates)})")
                     
                     # Setup Engine for this date
-                    iter_engine = SimulationEngine(date=d)
+                    iter_engine = SimulationEngine(date=d, include_rejected=include_rejected)
                     iter_engine.build_network()
                     
                     # Apply model if one is selected (uncalibrated uses default roughness=1.0)
@@ -342,7 +358,7 @@ def main():
                     import plotly.express as px
                     
                     st.subheader("Model Stability Analysis")
-                    tab1, tab2 = st.tabs(["MAE Distribution", "Detailed Sensor Variance"])
+                    tab1, tab2, tab3 = st.tabs(["MAE Distribution", "Error Evolution", "Detailed Sensor Variance"])
                     
                     with tab1:
                         fig_dist = px.box(res_df, y="mae", points="all",
@@ -350,8 +366,27 @@ def main():
                                           hover_data=['date'])
                         fig_dist.update_layout(yaxis_title="Mean Absolute Error (bar)")
                         st.plotly_chart(fig_dist, use_container_width=True)
-                    
+
                     with tab2:
+                        # Convert date string (DDMMYY) to datetime for sorting/plotting
+                        plot_df = err_df.copy() if not err_df.empty else pd.DataFrame()
+                        
+                        if not plot_df.empty:
+                            try:
+                                plot_df['datetime'] = pd.to_datetime(plot_df['date'], format='%d%m%y')
+                                plot_df = plot_df.sort_values('datetime')
+                            except Exception:
+                                pass
+                                
+                            fig_evol = px.line(plot_df, x="datetime", y="error", color="sensor", markers=True,
+                                              title="Error Evolution over Time (per Sensor)",
+                                              labels={"error": "Absolute Error (bar)", "datetime": "Simulation Date", "sensor": "Sensor"})
+                            fig_evol.update_layout(yaxis_title="Absolute Error (bar)")
+                            st.plotly_chart(fig_evol, use_container_width=True)
+                        else:
+                            st.warning("No sensor error data available to plot.")
+                    
+                    with tab3:
                         if not err_df.empty:
                             sensor_stats = err_df.groupby('sensor')['error'].agg(['mean', 'std', 'max']).reset_index()
                             sensor_stats.columns = ['Sensor', 'Mean Error', 'Std Dev', 'Max Error']

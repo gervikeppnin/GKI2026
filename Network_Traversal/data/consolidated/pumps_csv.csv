@@ -1,0 +1,6 @@
+end,name,setting,start,curve
+Junction-29114,Pump-3,"67.88",Junction-29113,Curve-3
+Junction-455622,Pump-4,"26.52",Junction-455961,Curve-4
+Junction-456045,Pump-2,"46.91",Junction-455391,Curve-2
+Junction-474382,Pump-1,"91.78",Reservoir-1,Curve-1
+Junction-455841,Pump-5,"40.4",Junction-475428,Curve-5

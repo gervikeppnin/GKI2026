@@ -135,31 +135,50 @@ class PipeRoughnessCalibrationIGV2:
 
     def _initialize_structure(self, initial_pipe_roughness: Optional[Dict[str, float]] = None):
         """Initializes G_0 and theta_0."""
-        # Use engine's smart grouping
-        groups = self.sim.get_pipe_groups(strategy="smart")
         
-        self.group_mapping = {}
-        self.theta = {}
-        
-        import numpy as np
-        
-        for g_name, pipes in groups.items():
-            if initial_pipe_roughness:
-                # Calculate mean from provided initialization
-                vals = [initial_pipe_roughness.get(p, 100.0) for p in pipes]
-                if vals:
-                    self.theta[g_name] = float(np.mean(vals))
-                else:
-                    self.theta[g_name] = 100.0
-            else:
-                self.theta[g_name] = 100.0 # Default C-factor center
-                
-            for p in pipes:
-                self.group_mapping[p] = g_name
-                
-        logger.info(f"Initialized with {len(self.theta)} groups.")
         if initial_pipe_roughness:
-            logger.info("Used provided initial model to set starting roughness values.")
+            # Reconstruct groups from input values
+            # This preserves the structure of the warm-start model
+            value_groups = {}
+            for p, r in initial_pipe_roughness.items():
+                # Round to avoid float precision issues creating duplicate groups
+                r_val = round(float(r), 4) 
+                if r_val not in value_groups:
+                    value_groups[r_val] = []
+                value_groups[r_val].append(p)
+            
+            self.theta = {}
+            self.group_mapping = {}
+            
+            # Create groups
+            for r_val, pipes in value_groups.items():
+                # Name group by its value, e.g., G_139.6003
+                g_name = f"G_{r_val}"
+                self.theta[g_name] = r_val
+                for p in pipes:
+                    self.group_mapping[p] = g_name
+            
+            # Ensure we cover all pipes if possible, or fallback to default for missing
+            # If pipes are missing from initial_pipe_roughness but exist in self.sim.params?
+            # We used pipes from the input dict.
+            # We should probably ensure all pipes in self.sim are covered.
+            # But specific pipes list comes from smart grouping usually.
+            
+            logger.info(f"Initialized with {len(self.theta)} groups (reconstructed from input values).")
+            
+        else:
+            # Use engine's smart grouping (Default)
+            groups = self.sim.get_pipe_groups(strategy="smart")
+            
+            self.group_mapping = {}
+            self.theta = {}
+            
+            for g_name, pipes in groups.items():
+                self.theta[g_name] = 100.0 # Default C-factor center
+                for p in pipes:
+                    self.group_mapping[p] = g_name
+                    
+            logger.info(f"Initialized with {len(self.theta)} groups using Smart strategy.")
 
         # Initialize Constraint Data
         # Load pipe ages for monotonicity constraint
@@ -255,10 +274,11 @@ class PipeRoughnessCalibrationIGV2:
         Re-initializes surrogate model for current dimensionality k.
         
         Args:
-            transfer_data: Tuple (old_X, old_y, split_idx) to preserve history.
+            transfer_data: Tuple (old_X, old_y, split_idx, old_length_scales) to preserve history.
         """
         k = len(self.theta)
-        self.surrogate = SurrogateModel(n_features=k, bounds=(ROUGHNESS_MIN, ROUGHNESS_MAX))
+        
+        initial_length_scales = None
         
         # Knowledge Transfer: Restore history if provided
         if transfer_data:
@@ -266,18 +286,53 @@ class PipeRoughnessCalibrationIGV2:
             # Mode 1: Split (Default if len=3) -> (old_X, old_y, split_idx)
             # Mode 2: Explicit -> (old_X, old_y, mode, *args)
             
+            old_X, old_y = transfer_data[0], transfer_data[1]
+            old_ls = None
+            
             mode = 'SPLIT'
-            if len(transfer_data) == 3:
-                 old_X, old_y, idx = transfer_data
-                 args = [idx]
+            args = []
+            
+            if isinstance(transfer_data[2], str) and transfer_data[2] == 'MERGE':
+                mode = 'MERGE'
+                if len(transfer_data) >= 6:
+                    args = [transfer_data[3], transfer_data[4]]
+                    old_ls = transfer_data[5]
             else:
-                 old_X, old_y, mode, *args = transfer_data
+                mode = 'SPLIT'
+                if len(transfer_data) >= 3:
+                     # Check if 4th element exists for length scales
+                     # (old_X, old_y, split_idx, old_ls)
+                     if len(transfer_data) >= 4:
+                         old_ls = transfer_data[3]
+                     args = [transfer_data[2]]
             
             logger.info(f"Rebuild Surrogate Mode: {mode}. Old X len: {len(old_X)}. First shape: {old_X[0].shape if old_X else 'N/A'}")
 
             new_X = []
             valid_y = []
             
+            # Transfer Length Scales
+            if old_ls is not None:
+                try:
+                    if mode == 'SPLIT':
+                        idx = args[0]
+                        val = old_ls[idx]
+                        ls_prime = np.delete(old_ls, idx)
+                        # SPLIT Logic: remove target, append A, append B.
+                        ls_new = np.concatenate([ls_prime, [val, val]])
+                        initial_length_scales = ls_new
+                        logger.info(f"Transferred length scale for SPLIT logic (idx {idx}). New shape: {len(ls_new)}")
+                        
+                    elif mode == 'MERGE':
+                        # MERGE Logic: remove drop_idx.
+                        # (keep_idx, drop_idx)
+                        _, drop_idx = args
+                        ls_new = np.delete(old_ls, drop_idx)
+                        initial_length_scales = ls_new
+                        logger.info(f"Transferred length scales for MERGE logic. Dropped {drop_idx}. New shape: {len(ls_new)}")
+                except Exception as e:
+                    logger.warning(f"Failed to transfer length scales: {e}")
+
             for i, x in enumerate(old_X):
                 try:
                     if mode == 'SPLIT':
@@ -287,27 +342,17 @@ class PipeRoughnessCalibrationIGV2:
                         x_new = np.concatenate([x_prime, [val, val]])
                         new_X.append(x_new)
                     elif mode == 'MERGE':
-                        # args: (keep_idx, drop_idx)
-                        # We keep the column at keep_idx, discard drop_idx.
-                        # Since indices shift when we delete, we must be careful.
-                        # Strategy: Create mask or delete high index first.
                         keep_idx, drop_idx = args
-                        
-                        # We want to keep the value of keep_idx as the representative for the merged group.
-                        # And we remove drop_idx.
-                        # Ideally, if they were merged, the new value is some mix, but for history X,
-                        # we assume the 'keep' group's trajectory is the dominant one or they were similar.
-                        
-                        # Note: The new theta vector will have length k (which is old_k - 1).
-                        # We need to remove drop_idx from x.
-                        # x_new should be length k.
-                        
                         x_new = np.delete(x, drop_idx)
                         new_X.append(x_new)
                         
                     valid_y.append(old_y[i])
                 except Exception as e:
                     logger.warning(f"Failed to transfer data point: {e}")
+            
+            self.surrogate = SurrogateModel(n_features=k, 
+                                            bounds=(ROUGHNESS_MIN, ROUGHNESS_MAX),
+                                            initial_length_scale=initial_length_scales)
             
             if new_X:
                 self.surrogate.X_train = new_X
@@ -319,6 +364,8 @@ class PipeRoughnessCalibrationIGV2:
                     logger.info(f"Transferred {len(new_X)} history points to new brain structure. New shape: {new_X[0].shape if new_X else 'N/A'}")
                 except Exception as e:
                     logger.error(f"Failed to retrain transferred surrogate: {e}")
+        else:
+            self.surrogate = SurrogateModel(n_features=k, bounds=(ROUGHNESS_MIN, ROUGHNESS_MAX))
 
     def step(self) -> bool:
         """
@@ -564,13 +611,14 @@ class PipeRoughnessCalibrationIGV2:
             split_idx = old_keys.index(target_g)
             old_X = copy.deepcopy(self.surrogate.X_train)
             old_y = copy.deepcopy(self.surrogate.y_train)
+            old_ls = self.surrogate.get_length_scales()
             
             del self.theta[target_g]
             self.theta[g_a] = parent_val
             self.theta[g_b] = parent_val
             
             # Rebuild Surrogate for new dimension with history transfer
-            self._rebuild_surrogate(transfer_data=(old_X, old_y, split_idx))
+            self._rebuild_surrogate(transfer_data=(old_X, old_y, split_idx, old_ls))
             
             logger.info(f"Split {target_g} by {split_feat} -> {g_a} ({count_a}), {g_b} ({count_b})")
             
@@ -594,6 +642,7 @@ class PipeRoughnessCalibrationIGV2:
                 
                 old_X = copy.deepcopy(self.surrogate.X_train)
                 old_y = copy.deepcopy(self.surrogate.y_train)
+                old_ls = self.surrogate.get_length_scales()
                 
                 # We will keep idx1, drop idx2.
                 # Update Theta
@@ -607,7 +656,7 @@ class PipeRoughnessCalibrationIGV2:
                 
                 # Rebuild Surrogate
                 # We need to tell it to drop idx2
-                self._rebuild_surrogate(transfer_data=(old_X, old_y, 'MERGE', idx1, idx2))
+                self._rebuild_surrogate(transfer_data=(old_X, old_y, 'MERGE', idx1, idx2, old_ls))
                 
                 logger.info(f"Merged {g2} into {g1} (Moved {count_moved} pipes).")
             except ValueError:
@@ -710,6 +759,17 @@ class PipeRoughnessCalibrationIGV2:
         """Runs the budget loop."""
         logger.info("Starting Optimization Loop...")
         
+        # Initial Evaluation of Warm Start
+        if self.iteration == 0 and self.theta:
+             logger.info("Performing initial evaluation of warm-start model...")
+             # Run 1-day check to establish baseline
+             # We use a dummy KEEP action which falls through to simulation
+             # but keeps current theta.
+             dummy_action = Action(type='KEEP', cost=COST_1_DAY_SIM)
+             # We force duration=20 (1 day) to get a quick score
+             self._execute_action(dummy_action, duration=20) 
+             logger.info(f"Initial Baseline MAE: {self.best_mae:.4f}")
+
         # Using tqdm for progress bar
         pbar = tqdm(total=self.total_budget, desc="Budget Used", unit="units")
         

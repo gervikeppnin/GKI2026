@@ -7,7 +7,7 @@ from typing import Final, Dict
 
 # Paths
 BASE_DIR: Final[Path] = Path(__file__).parent.parent
-DATA_DIR: Final[Path] = BASE_DIR / "data"
+DATA_DIR: Final[Path] = BASE_DIR / "data" / "consolidated"
 
 # Hydraulic Parameters
 DEMAND_MULTIPLIER: Final[float] = 1.0

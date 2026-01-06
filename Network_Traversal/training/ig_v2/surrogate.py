@@ -15,15 +15,20 @@ from .config import LIKELIHOOD_TYPE
 logger = logging.getLogger(__name__)
 
 class SurrogateModel:
-    def __init__(self, n_features: int, bounds: Tuple[float, float]):
+    def __init__(self, n_features: int, bounds: Tuple[float, float], initial_length_scale: Optional[np.ndarray] = None):
         self.n_features = n_features
         self.bounds = bounds
         
         # Kernel: Constant * Matern(nu=2.5) + Noise
         # nu=2.5 corresponds to Matérn 5/2 (twice differentiable)
-        # Length scale: 10.0 (smooth physics over C-factor range 60-150)
         # Bounds: (0.1, 200.0) allow for both local and global trends
-        kernel = ConstantKernel(1.0) * Matern(length_scale=10.0 * np.ones(n_features), 
+        
+        if initial_length_scale is not None and len(initial_length_scale) == n_features:
+            ls = initial_length_scale
+        else:
+            ls = 10.0 * np.ones(n_features) # Default smooth physics
+            
+        kernel = ConstantKernel(1.0) * Matern(length_scale=ls, 
                                               length_scale_bounds=(0.1, 200.0), 
                                               nu=2.5) + \
                  WhiteKernel(noise_level=1e-3, noise_level_bounds=(1e-5, 1.0))
@@ -91,3 +96,37 @@ class SurrogateModel:
         # Or better: Entropy of the GP at the optimum?
         # For simplicity in this budget loop, we might track the variance of the 'best' candidate.
         return 0.0 # Placeholder if not strictly needed for the simplified IG loop
+
+    def get_length_scales(self) -> np.ndarray:
+        """Returns the current learned length scales (inverse importance)."""
+        if not self.is_fitted:
+            # Return initial kernel's length scales
+            k = self.gp.kernel
+            # Drill down to Matern
+            # Kernel structure: Product(Constant, Matern) + WhiteKernel
+            # Depending on sklearn version and ops, structure varies.
+            # Initial kernel passed to constructor is usually preserved in .kernel if not fitted?
+            # self.gp.kernel is the initial one if not fitted.
+            try:
+                # Based on init: Constant * Matern + White
+                # k.k1 = Constant * Matern
+                # k.k1.k2 = Matern
+                if hasattr(k, 'k1') and hasattr(k.k1, 'k2'):
+                    return k.k1.k2.length_scale
+                # Fallback
+                return 10.0 * np.ones(self.n_features)
+            except:
+                return 10.0 * np.ones(self.n_features)
+        
+        # If fitted, self.gp.kernel_ is the fitted kernel
+        try:
+            k = self.gp.kernel_
+            # Same structure: (Constant * Matern) + White
+            # k.k1 = Constant * Matern
+            # k.k1.k2 = Matern
+            if hasattr(k, 'k1') and hasattr(k.k1, 'k2'):
+                return k.k1.k2.length_scale
+            # Sometimes optimization might simplify structure?
+            return 10.0 * np.ones(self.n_features)
+        except:
+             return 10.0 * np.ones(self.n_features)
