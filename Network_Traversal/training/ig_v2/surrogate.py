@@ -15,9 +15,10 @@ from .config import LIKELIHOOD_TYPE
 logger = logging.getLogger(__name__)
 
 class SurrogateModel:
-    def __init__(self, n_features: int, bounds: Tuple[float, float], initial_length_scale: Optional[np.ndarray] = None):
+    def __init__(self, n_features: int, bounds: Tuple[float, float], initial_length_scale: Optional[np.ndarray] = None, max_samples: int = 100):
         self.n_features = n_features
         self.bounds = bounds
+        self.max_samples = max_samples
         
         # Kernel: Constant * Matern(nu=2.5) + Noise
         # nu=2.5 corresponds to Matérn 5/2 (twice differentiable)
@@ -49,6 +50,10 @@ class SurrogateModel:
         self.X_train.append(theta)
         self.y_train.append(score)
         
+        # Prune if necessary
+        if len(self.X_train) > self.max_samples:
+            self._prune_data()
+        
         X = np.array(self.X_train)
         y = np.array(self.y_train)
         
@@ -57,6 +62,45 @@ class SurrogateModel:
             self.is_fitted = True
         except Exception as e:
             logger.error(f"GP Fitting failed: {e}")
+
+    def _prune_data(self):
+        """Prune data to keep model efficient.
+        Strategy: Keep top N best scores + most recent K.
+        default: Top 20 best, rest recent.
+        """
+        if len(self.X_train) <= self.max_samples:
+            return
+
+        N_BEST = 20
+        N_RECENT = self.max_samples - N_BEST
+        
+        # Indices
+        all_indices = np.arange(len(self.y_train))
+        
+        # Sort by score (descending, assuming higher score = better)
+        # y_train contains 'score' which in agent is -MAE (so higher is closer to 0, better)
+        sorted_indices = np.argsort(self.y_train)[::-1]
+        best_indices = sorted_indices[:N_BEST]
+        
+        # Get recent indices that are NOT in best_indices
+        recent_indices = []
+        # Traverse backwards
+        for idx in range(len(self.y_train) - 1, -1, -1):
+            if len(recent_indices) >= N_RECENT:
+                break
+            if idx not in best_indices:
+                recent_indices.append(idx)
+        
+        # Combine
+        keep_indices = np.concatenate([best_indices, recent_indices])
+        keep_indices = np.sort(keep_indices) # optional, but kept chronological
+        
+        # Filter
+        self.X_train = [self.X_train[i] for i in keep_indices]
+        self.y_train = [self.y_train[i] for i in keep_indices]
+        
+        logger.info(f"Pruned GP memory. Kept {len(self.X_train)} samples "
+                    f"(Best {N_BEST}, Recent {len(recent_indices)}).")
 
     def predict(self, theta: np.ndarray) -> Tuple[float, float]:
         """Predict mean and std for a candidate theta."""

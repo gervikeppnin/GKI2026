@@ -21,11 +21,12 @@ INITIAL_SIGMA_GUESS     = 0.5               # Initial guess for sigma_n (bar, ap
 
 # Optimization & Budget
 TOTAL_BUDGET_UNITS      = 1000.0            # Total computational credits
-COST_1_DAY_SIM          = 20.0               # Credit cost for partial check
-COST_FULL_WINDOW_SIM    = 20.0              # Credit cost for high-fidelity confirmation
+COST_1_DAY_SIM          = 1.0               # Credit cost for partial check (1 unit per day)
+COST_FULL_WINDOW_SIM    = 1.0               # Base cost (per day unit)
 PENALTY_LAMBDA          = 0.05              # Complexity penalty per group added (k)
 EARLY_EXIT_THRESHOLD    = 1e-6              # Stop if (IG/Cost) < threshold
 CONVERGENCE_LIMIT_ENTROPY = 0.1             # Stop if posterior entropy drops below this
 
 # Structural
-MAX_GROUPS              = 30                # Cap on number of groups to prevent explosion
+MAX_GROUPS              = 15               # Cap on number of groups to prevent explosion
+MAX_GP_SAMPLES          = 100              # Max number of samples to keep in GP (pruning limit)

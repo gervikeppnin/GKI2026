@@ -25,7 +25,8 @@ from .config import (
     ROUGHNESS_MAX,
     INFER_LATENT_NOISE,
     WINDOW_SIZE_DAYS,
-    MAX_GROUPS
+    MAX_GROUPS,
+    MAX_GP_SAMPLES
 )
 from .data import DataPipeline
 from .surrogate import SurrogateModel
@@ -81,15 +82,27 @@ def run_single_date(date: str, pipe_roughness: Dict[str, float], data_dir: Optio
 
 
 class PipeRoughnessCalibrationIGV2:
-    def __init__(self, data_pipeline: DataPipeline, simulation_engine: SimulationEngine, initial_pipe_roughness: Optional[Dict[str, float]] = None, budget: float = None):
+    def __init__(
+        self, 
+        data_pipeline: DataPipeline, 
+        sim_engine: SimulationEngine,
+        initial_pipe_roughness: Optional[Dict[str, float]] = None,
+        budget: float = TOTAL_BUDGET_UNITS,
+        cost_full_sim: float = COST_FULL_WINDOW_SIM,
+        window_size: int = WINDOW_SIZE_DAYS,
+        max_gp_samples: int = MAX_GP_SAMPLES
+    ):
         self.data = data_pipeline
-        self.sim = simulation_engine
-        self.total_budget = budget or TOTAL_BUDGET_UNITS
+        self.engine = sim_engine
+        self.budget = budget
+        self.cost_full_sim = cost_full_sim
+        self.window_size = window_size
+        self.max_gp_samples = max_gp_samples
         
         # State
         self.budget_used = 0.0
         self.iteration = 0
-        self.history = []
+        self.history: List[Dict] = []
         
         # Structure variables
         # G: pipe_id -> group_id
@@ -97,8 +110,8 @@ class PipeRoughnessCalibrationIGV2:
         self.group_mapping: Dict[str, str] = {} # pipe -> group
         self.theta: Dict[str, float] = {}       # group -> value
         
-        if not self.sim.wn:
-            self.sim.build_network()
+        if not self.engine.wn:
+            self.engine.build_network()
             
         # Initialize G0 using 'smart' heuristic
         self._initialize_structure(initial_pipe_roughness)
@@ -114,20 +127,8 @@ class PipeRoughnessCalibrationIGV2:
         self.max_stagnation = 15 # Steps before switching to Explore mode
         self.explore_sigma = 10.0
         self.fine_tune_sigma = 2.0
-
         
         # Initialize Surrogate
-        # One dimension per group. Since groups change, we might need to genericize or retrain.
-        # For V2 simplified: We stick to the CURRENT structure's dimensionality for the surrogate
-        # or we have a surrogate that takes [pipe_roughness_vector] (too big)
-        # OR we just have a separate surrogate for each group's parameter?
-        # The spec says: "INPUT: theta[1..k]".
-        # Since 'k' changes (Split/Merge), the surrogate input dimension changes.
-        # This implies we either:
-        # A) Re-instantiate Surrogate when structure changes.
-        # B) Use a more flexible model (like a graph kernel).
-        # Given "Sequential Optimization with Structural Adaptation", Re-instantiation is standard.
-        self.surrogate: Optional[SurrogateModel] = None
         self._rebuild_surrogate()
         
         # Metrics
@@ -168,7 +169,7 @@ class PipeRoughnessCalibrationIGV2:
             
         else:
             # Use engine's smart grouping (Default)
-            groups = self.sim.get_pipe_groups(strategy="smart")
+            groups = self.engine.get_pipe_groups(strategy="smart")
             
             self.group_mapping = {}
             self.theta = {}
@@ -184,11 +185,11 @@ class PipeRoughnessCalibrationIGV2:
         # Load pipe ages for monotonicity constraint
         # Expecting sim.data['pipes'] to have 'name' and 'year'
         self.pipe_5yr_buckets = {}
-        if 'pipes' in self.sim.data:
-            self.pipes_df = self.sim.data['pipes'].set_index('name') 
+        if 'pipes' in self.engine.data:
+            self.pipes_df = self.engine.data['pipes'].set_index('name') 
             logger.info(f"Loaded {len(self.pipes_df)} pipes for structural operations.")
             
-            pdf = self.sim.data['pipes']
+            pdf = self.engine.data['pipes']
             for row in pdf.itertuples():
                 try:
                     p_name = str(row.name)
@@ -202,8 +203,8 @@ class PipeRoughnessCalibrationIGV2:
 
         # Calculate Pipe Slopes
         # Join pipes with junctions to get elevations
-        if 'junctions' in self.sim.data and 'pipes' in self.sim.data:
-            j_df = self.sim.data['junctions'].set_index('name')
+        if 'junctions' in self.engine.data and 'pipes' in self.engine.data:
+            j_df = self.engine.data['junctions'].set_index('name')
             elev_map = j_df['z'].to_dict()
             
             slopes = []
@@ -352,7 +353,8 @@ class PipeRoughnessCalibrationIGV2:
             
             self.surrogate = SurrogateModel(n_features=k, 
                                             bounds=(ROUGHNESS_MIN, ROUGHNESS_MAX),
-                                            initial_length_scale=initial_length_scales)
+                                            initial_length_scale=initial_length_scales,
+                                            max_samples=self.max_gp_samples)
             
             if new_X:
                 self.surrogate.X_train = new_X
@@ -365,19 +367,21 @@ class PipeRoughnessCalibrationIGV2:
                 except Exception as e:
                     logger.error(f"Failed to retrain transferred surrogate: {e}")
         else:
-            self.surrogate = SurrogateModel(n_features=k, bounds=(ROUGHNESS_MIN, ROUGHNESS_MAX))
+            self.surrogate = SurrogateModel(n_features=k, 
+                                            bounds=(ROUGHNESS_MIN, ROUGHNESS_MAX),
+                                            max_samples=self.max_gp_samples)
 
     def step(self) -> bool:
         """
         Executes one iteration of the optimization loop.
         Returns False if budget exhausted or early exit.
         """
-        if self.budget_used >= self.total_budget:
+        if self.budget_used >= self.budget:
             logger.info("Budget exhausted.")
             return False
 
         self.iteration += 1
-        logger.info(f"--- Iteration {self.iteration} (Budget: {self.budget_used:.1f}/{self.total_budget}) ---")
+        logger.info(f"--- Iteration {self.iteration} (Budget: {self.budget_used:.1f}/{self.budget}) ---")
         
         # 1. PROPOSE actions
         actions = self._propose_actions()
@@ -449,16 +453,16 @@ class PipeRoughnessCalibrationIGV2:
         _, std = self.surrogate.predict(self._get_candidate_theta(best_action).reshape(1, -1))
         
         if std > 0.1: # Threshold for "High"
-            duration = 20 # 1 day
-            cost = COST_1_DAY_SIM
+            duration = 1 # 1 day exploration
+            cost = float(COST_1_DAY_SIM)
         else:
-            duration = WINDOW_SIZE_DAYS
-            cost = COST_FULL_WINDOW_SIM
+            duration = self.window_size
+            cost = self.cost_full_sim
             
         best_action.cost = cost # Update cost handling
         
         # Check budget
-        if self.budget_used + cost > self.total_budget:
+        if self.budget_used + cost > self.budget:
             logger.info("Not enough budget for selected action.")
             return False
 
@@ -680,7 +684,7 @@ class PipeRoughnessCalibrationIGV2:
         # Parallel Execution
         # Use simple joblib parallelization
         results = Parallel(n_jobs=-1)(
-            delayed(run_single_date)(date, pipe_roughness, self.sim.data_dir) 
+            delayed(run_single_date)(date, pipe_roughness, self.engine.data_dir) 
             for date in dates_to_run
         )
         
@@ -770,15 +774,15 @@ class PipeRoughnessCalibrationIGV2:
              self._execute_action(dummy_action, duration=20) 
              logger.info(f"Initial Baseline MAE: {self.best_mae:.4f}")
 
-        # Using tqdm for progress bar
-        pbar = tqdm(total=self.total_budget, desc="Budget Used", unit="units")
+        # Progress Bar
+        pbar = tqdm(total=self.budget, desc="Budget Used", unit="units")
         
         while self.step():
             # Update progress bar
             # We need to calculate how much budget was just used.
             # step() doesn't return cost, but self.budget_used is cumulative.
             # So we can just set pbar.n to current budget_used
-            pbar.n = min(self.budget_used, self.total_budget)
+            pbar.n = min(self.budget_used, self.budget)
             pbar.set_postfix({
                 "Best MAE": f"{self.best_mae:.4f}",
                 "Groups": len(self.theta)

@@ -17,22 +17,69 @@ from .config import (
     INITIAL_SIGMA_GUESS
 )
 
+from datetime import datetime
+
 logger = logging.getLogger(__name__)
 
 class DataPipeline:
-    def __init__(self, data_dir: Optional[Path] = None):
+    def __init__(self, data_dir: Optional[Path] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):
         self.data_dir = data_dir
-        self.available_dates = get_available_dates(self.data_dir)
+        raw_dates = get_available_dates(self.data_dir)
         
-        # Limit to available window size
-        if len(self.available_dates) > WINDOW_SIZE_DAYS:
-            self.dates = self.available_dates[:WINDOW_SIZE_DAYS]
+        # Sort chronologically (DDMMYY)
+        # 301025 -> Oct 30, 2025. 011125 -> Nov 1, 2025.
+        # Alphabetical sort fails here (01... < 30...).
+        try:
+            date_objs = []
+            for d in raw_dates:
+                try:
+                    dt = datetime.strptime(d, "%d%m%y")
+                    date_objs.append((d, dt))
+                except ValueError:
+                    logger.warning(f"Skipping invalid date format: {d}")
+            
+            # Sort by datetime object
+            date_objs.sort(key=lambda x: x[1])
+            
+            # Filter if range provided
+            if start_date:
+                start_dt = datetime.strptime(start_date, "%d%m%y")
+                date_objs = [x for x in date_objs if x[1] >= start_dt]
+                
+            if end_date:
+                end_dt = datetime.strptime(end_date, "%d%m%y")
+                date_objs = [x for x in date_objs if x[1] <= end_dt]
+                
+            # Extract back to strings
+            self.available_dates = [x[0] for x in date_objs]
+            
+        except Exception as e:
+            logger.error(f"Error filtering dates: {e}. Falling back to raw sorted.")
+            self.available_dates = raw_dates
+
+        # Limit to available window size (first N days of the filtered set)
+        # IF user provided explicit range, use it all (do not truncate).
+        # ELSE use default window size.
+        if (start_date or end_date):
+             # User specified range, respect it fully.
+             self.dates = self.available_dates
+             if len(self.dates) > WINDOW_SIZE_DAYS:
+                 logger.info(f"Using full requested range of {len(self.dates)} days (exceeds default window {WINDOW_SIZE_DAYS}).")
+        elif len(self.available_dates) > WINDOW_SIZE_DAYS:
+             # Default behavior: slice
+             logger.info(f"Filtered range has {len(self.available_dates)} days. Truncating to window size {WINDOW_SIZE_DAYS}.")
+             self.dates = self.available_dates[:WINDOW_SIZE_DAYS]
         else:
-            self.dates = self.available_dates
-            if len(self.dates) < WINDOW_SIZE_DAYS:
+             self.dates = self.available_dates
+             if len(self.dates) < WINDOW_SIZE_DAYS:
                 logger.warning(f"Only {len(self.dates)} days available, expected {WINDOW_SIZE_DAYS}.")
         
-        logger.info(f"Initialized DataPipeline with {len(self.dates)} days: {self.dates}")
+        if not self.dates:
+            raise ValueError(f"No data found for the specified range! Start: {start_date}, End: {end_date}. Check that Start <= End and files exist.")
+
+        
+        range_str = f"{self.dates[0]} to {self.dates[-1]}" if self.dates else "None"
+        logger.info(f"Initialized DataPipeline with {len(self.dates)} days: {range_str}")
         
         # Cache for processed data
         self.y_obs: Dict[str, pd.DataFrame] = {} # date -> sensor_df

@@ -40,6 +40,9 @@ def main():
     parser.add_argument("--budget", type=float, default=None, help="Override default budget")
     parser.add_argument("--data-dir", type=str, default=None, help="Path to data directory")
     parser.add_argument("--init-model", type=str, default=None, help="Name of model to initialize from (in models/ dir)")
+    parser.add_argument("--start-date", type=str, default=None, help="Start date (DDMMYY) for training data")
+    parser.add_argument('--end-date', type=str, help='Filter data end date (DDMMYY)')
+    parser.add_argument('--max-gp-samples', type=int, default=100, help='Max GP samples to keep (pruning limit)')
     args = parser.parse_args()
 
     # Override config if budget provided
@@ -55,7 +58,11 @@ def main():
     
     # Initialize Pipeline
     # DataPipeline also loads data. Ideally they share the same source.
-    data_pipeline = DataPipeline(data_dir=Path(args.data_dir) if args.data_dir else None)
+    data_pipeline = DataPipeline(
+        data_dir=Path(args.data_dir) if args.data_dir else None,
+        start_date=args.start_date,
+        end_date=args.end_date
+    )
     
     # Load initial model if provided
     initial_roughness = None
@@ -76,12 +83,28 @@ def main():
         else:
             logger.warning(f"Initialization model not found: {args.init_model}")
 
+    # Calculate dynamic parameters based on actual selected data
+    active_days = len(data_pipeline.dates)
+    if active_days > 0:
+        # Scale cost linearly? Config has COST_FULL_WINDOW_SIM for default window (20).
+        # Let's use unit cost.
+        from Network_Traversal.training.ig_v2.config import COST_1_DAY_SIM
+        dynamic_full_cost = COST_1_DAY_SIM * active_days
+        logger.info(f"Dynamic Configuration: Window={active_days} days, FullSimCost={dynamic_full_cost}")
+    else:
+        # Should catch empty before here, but fallback
+        active_days = config.WINDOW_SIZE_DAYS
+        dynamic_full_cost = config.COST_FULL_WINDOW_SIM
+
     # Initialize Agent
     agent = PipeRoughnessCalibrationIGV2(
         data_pipeline, 
         sim_engine, 
         initial_pipe_roughness=initial_roughness,
-        budget=config.TOTAL_BUDGET_UNITS # config was updated with args.budget if present
+        budget=config.TOTAL_BUDGET_UNITS, # config was updated with args.budget if present
+        cost_full_sim=dynamic_full_cost,
+        window_size=active_days,
+        max_gp_samples=args.max_gp_samples
     )
     
     logger.info("Starting Agent...")

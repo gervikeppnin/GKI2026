@@ -13,6 +13,7 @@ from pathlib import Path
 
 import sys
 import os
+import plotly.express as px
 
 # Ensure project root is in path
 # Point to GKI2026 (parent of Network_Traversal)
@@ -95,8 +96,8 @@ def main():
         selected_model = None
     else:
         # Create display options
-        model_options = ["Default (uncalibrated)", "Baseline (Constant)"] + [
-            f"{m.name} (MAE: {m.mae:.4f})" for m in models
+        model_options = ["Default", "Baseline (Constant)"] + [
+            f"{m.path.stem} (MAE: {m.mae:.4f}) - {m.name}" for m in models
         ]
         
         if 'selected_model_idx' not in st.session_state:
@@ -176,7 +177,21 @@ def main():
             # Try loading Surrogate Brain
             st.session_state.selected_surrogate = None
             if selected_model and selected_model != "BASELINE" and selected_model.path:
+                # Try standard pattern: {stem}_surrogate.pkl
                 brain_path = selected_model.path.parent / f"{selected_model.path.stem}_surrogate.pkl"
+                
+                # Check for alternative pattern: model_1.json -> model_surrogate_1.pkl
+                if not brain_path.exists():
+                     import re
+                     # Check if stem ends with _\d+
+                     match = re.search(r'(.+)_(\d+)$', selected_model.path.stem)
+                     if match:
+                         base = match.group(1)
+                         idx = match.group(2)
+                         alt_path = selected_model.path.parent / f"{base}_surrogate_{idx}.pkl"
+                         if alt_path.exists():
+                             brain_path = alt_path
+
                 if brain_path.exists():
                      try:
                          import joblib
@@ -207,9 +222,7 @@ def main():
         c1.metric("Simulation MAE", f"{results.mae:.2f} bar")
         c2.metric("Pipes", len(engine.wn.pipe_name_list))
         c3.metric("Sensors", len(sensor_names))
-        c1.metric("Simulation MAE", f"{results.mae:.2f} bar")
-        c2.metric("Pipes", len(engine.wn.pipe_name_list))
-        c3.metric("Sensors", len(sensor_names))
+
         
         display_name = "Default"
         if selected_model == "BASELINE":
@@ -250,6 +263,54 @@ def main():
                     measured_df, results.sensor_pressures_bar, sensor_name
                 )
                 st.plotly_chart(fig_chart, use_container_width=True)
+
+
+        # --- Roughness Analysis ---
+        st.header("🔍 Roughness Analysis")
+        st.write("Inspect how the calibrated roughness correlates with pipe features.")
+        
+        if 'pipes' in engine.data:
+            pipes_static = engine.data['pipes'].copy()
+            
+            # Get current roughness state
+            # engine.wn is current.
+            try:
+                # WNTR 1.x: Iterate via pipe_name_list
+                current_roughness = {}
+                for name in engine.wn.pipe_name_list:
+                    link = engine.wn.get_link(name)
+                    current_roughness[name] = link.roughness
+                
+                # Add to dataframe
+                pipes_static['current_roughness'] = pipes_static['name'].map(current_roughness)
+                
+                # Feature Selection
+                # Check available columns
+                available_cols = [c for c in ['year', 'diameter', 'length'] if c in pipes_static.columns]
+                
+                if available_cols:
+                    feature = st.selectbox("Select Feature to Analyze", available_cols, format_func=lambda x: x.capitalize())
+                    
+                    import plotly.express as px  # Ensure availability
+                    # Create Plot
+                    # User requested "Always Box" (candlestick style)
+                    fig_rough = px.box(
+                        pipes_static, 
+                        x=feature, 
+                        y='current_roughness',
+                        hover_data=['name'],
+                        title=f"Roughness Distribution by {feature.capitalize()}"
+                    )
+
+                    fig_rough.update_layout(yaxis_title="Roughness (C-Factor)")
+                    st.plotly_chart(fig_rough, use_container_width=True)
+                    
+                else:
+                    st.warning("No suitable pipe features (year, diameter, length) found in data.")
+            except Exception as e:
+                st.error(f"Could not load roughness analysis: {e}")
+        else:
+             st.warning("Pipe metadata not available.")
 
         # --- Demand vs Inflow Analysis ---
         st.header("🌊 Demand & Inflow Analysis")
