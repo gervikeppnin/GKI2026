@@ -1,0 +1,10 @@
+transformers>=4.35.0
+datasets[audio]>=2.14.0,<3.0.0
+accelerate>=0.24.0
+evaluate>=0.4.0
+jiwer>=3.0.0
+librosa>=0.10.0
+torch>=2.0.0
+tensorboard>=2.14.0
+soundfile>=0.12.0
+torchaudio>=2.0.0
