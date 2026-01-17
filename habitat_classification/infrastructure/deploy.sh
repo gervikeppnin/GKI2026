@@ -33,7 +33,7 @@ echo "   Using temp directory: $TEMP_DIR"
 
 # Copy necessary files
 cd "$(dirname "$0")/.."  # Go to project root
-cp -r api.py model.py utils.py function_app.py host.json data/ "$TEMP_DIR/"
+cp -r api.py model.py utils.py function_app.py host.json data "$TEMP_DIR/"
 cp infrastructure/requirements-azure.txt "$TEMP_DIR/requirements.txt"
 cp .funcignore "$TEMP_DIR/" 2>/dev/null || true
 
@@ -63,4 +63,4 @@ echo "✅ Deployment complete!"
 echo "🌐 Function URL: https://${FUNCTION_APP_NAME}.azurewebsites.net"
 echo ""
 echo "Test with:"
-echo "  curl https://${FUNCTION_APP_NAME}.azurewebsites.net/ping"
+echo "  curl https://${FUNCTION_APP_NAME}.azurewebsites.net/api/ping"

@@ -2,6 +2,9 @@
 *.pyc
 .DS_Store
 
+# Azure Functions
+local.settings.json
+
 # Terraform
 *.tfstate
 *.tfstate.*

@@ -46,7 +46,8 @@ def load_training_data():
         labels: numpy array of shape (N,) with class indices 0-70
     """
     data_dir = Path(__file__).parent / "data"
-    patches = np.load(data_dir / "train" / "patches.npy")
+    training_data = Path(__file__).parent / "training"
+    patches = np.load(training_data / "train/patches.npy")
     labels_df = pd.read_csv(data_dir / "train.csv")
     return patches, labels_df["vistgerd_idx"].values
 
