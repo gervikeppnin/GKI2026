@@ -9,5 +9,5 @@ import httpx
 patches, _ = load_training_data()
 encoded = encode_patch(patches[0])
 
-response = httpx.post('http://localhost:4321/predict', json={'patch': encoded})
+response = httpx.post('http://localhost:4321/predict', json={'patch': encoded}, headers={'Authorization': 'Bearer abc123'})
 print(response.json())
