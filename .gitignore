@@ -1,2 +1,9 @@
 *.npy
 *.pyc
+.DS_Store
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl.backup

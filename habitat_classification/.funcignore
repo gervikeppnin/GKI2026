@@ -1,0 +1,15 @@
+.git*
+.vscode
+__pycache__
+*.pyc
+.python_version
+.env
+.venv
+venv/
+env/
+.DS_Store
+*.md
+!README.md
+example.png
+all_classes_rgb.png
+photo_*.jpg
