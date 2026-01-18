@@ -10,7 +10,7 @@ The server will start on http://0.0.0.0:8080
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Any, Union
 import numpy as np
 from model import predict
 
@@ -22,11 +22,22 @@ N_SENSORS = 45
 
 
 class PredictRequest(BaseModel):
-    """Request body for /predict endpoint."""
+    """Request body for /predict endpoint.
+
+    Weather data format (per-station rows, matching training CSV structure):
+    - weather_forecast: (N, 11) where N = stations × hours
+      Columns: date_time, station_id, temperature, windspeed, cloud_coverage,
+               gust, humidity, winddirection, dewpoint, rain_accumulated, value_date
+    - weather_history: (N, 21) where N = stations × hours
+      Columns: stod, timi, f, fg, fsdev, d, dsdev, t, tx, tn, rh, td, p, r,
+               tg, tng, _rescued_data, value_date, lh_created_date, lh_modified_date, lh_is_deleted
+
+    Note: Weather arrays contain mixed types (strings for timestamps/directions, floats for values).
+    """
     sensor_history: List[List[float]]  # 672 x 45 array
     timestamp: str  # ISO format datetime
-    weather_forecast: Optional[List[List[float]]] = None  # 72 x n_features (optional)
-    weather_history: Optional[List[List[float]]] = None  # 672 x n_features (optional)
+    weather_forecast: Optional[List[List[Any]]] = None  # (N, 11) per-station rows, mixed types
+    weather_history: Optional[List[List[Any]]] = None  # (N, 21) per-station rows, mixed types
 
 
 class PredictResponse(BaseModel):
@@ -56,8 +67,8 @@ def api_info():
         "input": {
             "sensor_history": [HISTORY_LENGTH, N_SENSORS],
             "timestamp": "ISO format datetime string",
-            "weather_forecast": "optional, (72, n_features)",
-            "weather_history": "optional, (672, n_features)"
+            "weather_forecast": "optional, (N, 11) per-station rows with mixed types",
+            "weather_history": "optional, (N, 21) per-station rows with mixed types"
         },
         "output": {
             "predictions": [HORIZON, N_SENSORS]
@@ -78,8 +89,12 @@ def predict_endpoint(request: PredictRequest):
     Input:
         - sensor_history: 672 x 45 array (4 weeks of sensor data)
         - timestamp: ISO format datetime of first forecast hour
-        - weather_forecast: 72 x n array (optional)
-        - weather_history: 672 x n array (optional)
+        - weather_forecast: (N, 11) per-station rows, mixed types (optional)
+          Columns: date_time, station_id, temperature, windspeed, cloud_coverage,
+                   gust, humidity, winddirection, dewpoint, rain_accumulated, value_date
+        - weather_history: (N, 21) per-station rows, mixed types (optional)
+          Columns: stod, timi, f, fg, fsdev, d, dsdev, t, tx, tn, rh, td, p, r,
+                   tg, tng, _rescued_data, value_date, lh_created_date, lh_modified_date, lh_is_deleted
 
     Output:
         - predictions: 72 x 45 array
