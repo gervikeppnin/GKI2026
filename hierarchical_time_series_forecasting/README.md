@@ -39,10 +39,10 @@ ISO 8601 format: `"2025-01-15T08:00:00"`
 **Matches `weather_forecasts.csv` exactly - per-station data, no aggregation.**
 
 ```
-Shape: (N_rows, 11) - N_rows varies by time window
+Shape: (N_rows, 11) - approximately 910-936 rows (72 hours × 13 stations)
 
 Columns (same order as training CSV):
-  0: date_time         - Forecast issue time (ISO string)
+  0: date_time         - Forecast target time (ISO string) - when this forecast is FOR
   1: station_id        - Weather station ID (integer)
   2: temperature       - Temperature forecast (°C)
   3: windspeed         - Wind speed forecast (m/s)
@@ -52,7 +52,7 @@ Columns (same order as training CSV):
   7: winddirection     - Wind direction (compass string: N, NNA, A, etc.)
   8: dewpoint          - Dew point temperature (°C)
   9: rain_accumulated  - Accumulated rainfall (mm)
-  10: value_date       - Forecast valid time (ISO string)
+  10: value_date       - Forecast issue time (ISO string) - when forecast was made
 ```
 
 ### Weather History Format (optional)

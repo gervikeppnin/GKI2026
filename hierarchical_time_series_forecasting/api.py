@@ -25,9 +25,9 @@ class PredictRequest(BaseModel):
     """Request body for /predict endpoint.
 
     Weather data format (per-station rows, matching training CSV structure):
-    - weather_forecast: (N, 11) where N = stations × hours
-      Columns: date_time, station_id, temperature, windspeed, cloud_coverage,
-               gust, humidity, winddirection, dewpoint, rain_accumulated, value_date
+    - weather_forecast: (~910-936 rows, 11 cols) = 72 hours × 13 stations
+      Columns: date_time (target time), station_id, temperature, windspeed, cloud_coverage,
+               gust, humidity, winddirection, dewpoint, rain_accumulated, value_date (issue time)
     - weather_history: (N, 21) where N = stations × hours
       Columns: stod, timi, f, fg, fsdev, d, dsdev, t, tx, tn, rh, td, p, r,
                tg, tng, _rescued_data, value_date, lh_created_date, lh_modified_date, lh_is_deleted
@@ -67,7 +67,7 @@ def api_info():
         "input": {
             "sensor_history": [HISTORY_LENGTH, N_SENSORS],
             "timestamp": "ISO format datetime string",
-            "weather_forecast": "optional, (N, 11) per-station rows with mixed types",
+            "weather_forecast": "optional, (~910-936, 11) = 72h × 13 stations",
             "weather_history": "optional, (N, 21) per-station rows with mixed types"
         },
         "output": {
@@ -89,9 +89,9 @@ def predict_endpoint(request: PredictRequest):
     Input:
         - sensor_history: 672 x 45 array (4 weeks of sensor data)
         - timestamp: ISO format datetime of first forecast hour
-        - weather_forecast: (N, 11) per-station rows, mixed types (optional)
-          Columns: date_time, station_id, temperature, windspeed, cloud_coverage,
-                   gust, humidity, winddirection, dewpoint, rain_accumulated, value_date
+        - weather_forecast: (~910-936, 11) = 72h × 13 stations (optional)
+          Columns: date_time (target), station_id, temperature, windspeed, cloud_coverage,
+                   gust, humidity, winddirection, dewpoint, rain_accumulated, value_date (issue)
         - weather_history: (N, 21) per-station rows, mixed types (optional)
           Columns: stod, timi, f, fg, fsdev, d, dsdev, t, tx, tn, rh, td, p, r,
                    tg, tng, _rescued_data, value_date, lh_created_date, lh_modified_date, lh_is_deleted
