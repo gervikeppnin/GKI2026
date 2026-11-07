@@ -120,9 +120,9 @@ Einkunn = weighted_average_over_sensors(1 - RMSE_model / RMSE_baseline)
 
 | Einkunn | Merking |
 |---------|---------|
-| 0 | Sama og grunnlína |
-| > 0 | Betri en grunnlína |
-| < 0 | Verri en grunnlína |
+| 0 | Sama og grunnlíkan |
+| > 0 | Betri en grunnlíkan |
+| < 0 | Verri en grunnlíkan |
 | 1 | Besta spá í keppninni |
 
 ## Fljótleg byrjun

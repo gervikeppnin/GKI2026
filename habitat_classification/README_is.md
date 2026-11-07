@@ -65,7 +65,7 @@ Svar:
 
 | Árangur | Skor |
 |---------|------|
-| Slembigrunnlína | ~4% |
+| Slembigrunnlíkan | ~4% |
 | Gott | 20-25% |
 | Frábært | 30%+ |
 
